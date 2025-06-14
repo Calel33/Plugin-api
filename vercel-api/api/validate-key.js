@@ -3,10 +3,15 @@
 // Works with hashed keys for security and real database storage
 
 import crypto from 'crypto';
-import { findProKeyByHash, updateKeyUsage } from '../db/queries.js';
+import { validateKey, logKeyUsage } from '../db/queries.js';
 
 // Salt for hashing (should match your extension's salt)
 const PRO_SALT = 'AgentHustle2024ProSalt!@#$%^&*()_+SecureKey';
+
+// Rate limiting mechanism
+const rateLimitMap = new Map(); // Track requests by IP
+const RATE_LIMIT_WINDOW = 10000; // 10 seconds
+const MAX_REQUESTS_PER_WINDOW = 3; // Max 3 requests per 10 seconds per IP
 
 /**
  * Hash a key using the same algorithm as the extension
@@ -18,108 +23,160 @@ function hashKey(key, salt = PRO_SALT) {
     return crypto.createHash('sha256').update(key + salt).digest('hex');
 }
 
+/**
+ * Check if request should be rate limited
+ * @param {string} clientIP - Client IP address
+ * @returns {boolean} - True if rate limited
+ */
+function isRateLimited(clientIP) {
+    const now = Date.now();
+    const key = clientIP;
+    
+    if (!rateLimitMap.has(key)) {
+        rateLimitMap.set(key, { count: 1, firstRequest: now });
+        return false;
+    }
+    
+    const rateData = rateLimitMap.get(key);
+    
+    // Reset window if enough time has passed
+    if (now - rateData.firstRequest > RATE_LIMIT_WINDOW) {
+        rateLimitMap.set(key, { count: 1, firstRequest: now });
+        return false;
+    }
+    
+    // Check if limit exceeded
+    if (rateData.count >= MAX_REQUESTS_PER_WINDOW) {
+        console.log(`🚫 Rate limit exceeded for IP: ${clientIP} (${rateData.count} requests)`);
+        return true;
+    }
+    
+    // Increment counter
+    rateData.count++;
+    return false;
+}
+
+/**
+ * Get client IP address from request headers
+ * @param {Request} req - Express request object
+ * @returns {string} - Client IP address
+ */
+function getClientIP(req) {
+    // Check various headers for the real IP (considering proxies/CDNs)
+    const forwarded = req.headers['x-forwarded-for'];
+    const realIP = req.headers['x-real-ip'];
+    const cfConnectingIP = req.headers['cf-connecting-ip']; // Cloudflare
+    
+    if (forwarded) {
+        // x-forwarded-for can contain multiple IPs, take the first one
+        return forwarded.split(',')[0].trim();
+    }
+    
+    return realIP || cfConnectingIP || req.connection?.remoteAddress || req.ip || 'unknown';
+}
+
 export default async function handler(req, res) {
-    // Enable CORS for Chrome extension
+    // Set CORS headers
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept');
     
     // Handle preflight requests
     if (req.method === 'OPTIONS') {
-        res.status(200).end();
-        return;
+        return res.status(200).end();
     }
     
+    // Only allow POST requests for validation
     if (req.method !== 'POST') {
-        res.status(405).json({ error: 'Method not allowed' });
-        return;
+        return res.status(405).json({
+            success: false,
+            message: 'Method not allowed. Use POST.'
+        });
     }
     
     try {
-        const { key, action = 'validate' } = req.body;
+        // Get client IP and check rate limiting
+        const clientIP = getClientIP(req);
+        
+        if (isRateLimited(clientIP)) {
+            return res.status(429).json({
+                success: false,
+                message: 'Rate limit exceeded. Please wait before making another request.',
+                rateLimited: true,
+                retryAfter: Math.ceil(RATE_LIMIT_WINDOW / 1000) // seconds
+            });
+        }
+        
+        console.log(`🔍 Validation request from IP: ${clientIP}`);
+        
+        const { key, action } = req.body;
         
         if (!key) {
-            res.status(400).json({ error: 'Pro key is required' });
-            return;
+            return res.status(400).json({
+                success: false,
+                message: 'Pro key is required'
+            });
         }
         
-        // Hash the incoming key for security
-        const hashedKey = hashKey(key);
+        if (!action || action !== 'validate') {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid action. Use "validate".'
+            });
+        }
         
-        // Get client IP and user agent for tracking
-        const clientIP = req.headers['x-forwarded-for'] || 
-                        req.headers['x-real-ip'] || 
-                        req.connection.remoteAddress || 
-                        req.socket.remoteAddress ||
-                        (req.connection.socket ? req.connection.socket.remoteAddress : null);
-        const userAgent = req.headers['user-agent'];
+        // Validate the key against database
+        const result = await validateKey(key);
         
-        // Query database for the hashed key
-        const keyData = await findProKeyByHash(hashedKey);
-        
-        if (!keyData) {
-            // Key not found
-            res.json({
+        if (result.isValid) {
+            // Log successful usage
+            await logKeyUsage(
+                result.keyData.id,
+                clientIP,
+                req.headers['user-agent'] || 'Unknown',
+                'validate'
+            );
+            
+            console.log(`✅ Valid key used: ${result.keyData.notes?.substring(0, 30)}... (Usage: ${result.keyData.usage_count + 1})`);
+            
+            return res.status(200).json({
+                success: true,
+                isPro: true,
+                message: 'Valid pro key',
+                membershipDetails: {
+                    status: 'active',
+                    tier: 'pro',
+                    usageCount: result.keyData.usage_count + 1,
+                    lastUsed: new Date().toISOString(),
+                    notes: result.keyData.notes
+                }
+            });
+        } else {
+            console.log(`❌ Invalid key attempt from IP: ${clientIP}`);
+            
+            return res.status(200).json({
                 success: true,
                 isPro: false,
-                message: 'Invalid pro key',
-                legacy: false,
-                expired: false,
-                hasKey: true
+                message: 'Invalid pro key'
             });
-            return;
         }
-        
-        // Calculate days remaining
-        const now = new Date();
-        const expirationDate = new Date(keyData.expires_at);
-        const daysRemaining = Math.ceil((expirationDate - now) / (1000 * 60 * 60 * 24));
-        const isExpired = daysRemaining <= 0;
-        
-        // Handle different actions and update usage tracking
-        if (action === 'updateUsage' || action === 'validate') {
-            // Update usage count in database
-            await updateKeyUsage(keyData.id, clientIP, userAgent);
-        }
-        
-        // Determine if key is valid
-        const isPro = keyData.status === 'active' && !isExpired;
-        
-        // Build response (maintaining exact same format for backward compatibility)
-        const response = {
-            success: true,
-            isPro: isPro,
-            message: isPro 
-                ? `Valid ${keyData.tier} membership (${daysRemaining} days remaining)`
-                : isExpired 
-                    ? 'Pro membership has expired'
-                    : keyData.status === 'suspended'
-                        ? 'Pro membership is suspended'
-                        : 'Pro membership is inactive',
-            legacy: false,
-            expired: isExpired,
-            hasKey: true,
-            membershipDetails: {
-                status: keyData.status,
-                tier: keyData.tier,
-                expiresAt: keyData.expires_at,
-                daysRemaining: Math.max(0, daysRemaining),
-                usageCount: keyData.usage_count || 0,
-                lastUsed: keyData.last_used,
-                notes: keyData.notes || '',
-                customerName: keyData.customer_name || null,
-                customerEmail: keyData.customer_email || null
-            }
-        };
-        
-        res.json(response);
         
     } catch (error) {
-        console.error('Validation error:', error);
-        res.status(500).json({ 
+        console.error('❌ Validation error:', error);
+        
+        return res.status(500).json({
             success: false,
-            error: 'Internal server error',
-            message: 'Validation service temporarily unavailable'
+            message: 'Internal server error during validation'
         });
     }
-} 
+}
+
+// Clean up old rate limit entries periodically
+setInterval(() => {
+    const now = Date.now();
+    for (const [key, data] of rateLimitMap.entries()) {
+        if (now - data.firstRequest > RATE_LIMIT_WINDOW * 2) {
+            rateLimitMap.delete(key);
+        }
+    }
+}, RATE_LIMIT_WINDOW); 

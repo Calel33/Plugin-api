@@ -159,4 +159,112 @@ export async function checkDatabaseHealth() {
             timestamp: new Date().toISOString()
         };
     }
+}
+
+/**
+ * Log key usage and update counter atomically
+ * @param {number} proKeyId - Pro key ID
+ * @param {string} ipAddress - Client IP address
+ * @param {string} userAgent - User agent string
+ * @param {string} action - Action performed
+ * @returns {Promise<Object>} - Usage logging result
+ */
+export async function logKeyUsage(proKeyId, ipAddress, userAgent, action = 'validate') {
+    try {
+        // Start a transaction to ensure atomicity
+        await turso.execute('BEGIN TRANSACTION');
+        
+        try {
+            // Insert usage log
+            const usageResult = await turso.execute({
+                sql: `INSERT INTO key_usage (pro_key_id, ip_address, user_agent, action, used_at) 
+                      VALUES (?, ?, ?, ?, datetime('now'))`,
+                args: [proKeyId, ipAddress, userAgent, action]
+            });
+            
+            // Update usage counter atomically
+            const updateResult = await turso.execute({
+                sql: `UPDATE pro_keys 
+                      SET usage_count = usage_count + 1, 
+                          last_used = datetime('now') 
+                      WHERE id = ?`,
+                args: [proKeyId]
+            });
+            
+            // Commit transaction
+            await turso.execute('COMMIT');
+            
+            console.log(`📊 Usage logged: Key ID ${proKeyId}, Action: ${action}, IP: ${ipAddress.substring(0, 15)}...`);
+            
+            return {
+                success: true,
+                usageId: usageResult.lastInsertRowid,
+                updated: updateResult.rowsAffected > 0
+            };
+            
+        } catch (transactionError) {
+            // Rollback on error
+            await turso.execute('ROLLBACK');
+            throw transactionError;
+        }
+        
+    } catch (error) {
+        console.error('❌ Error logging key usage:', error);
+        throw error;
+    }
+}
+
+/**
+ * Validate a pro key and return key data
+ * @param {string} plainKey - Plain text key to validate
+ * @returns {Promise<Object>} - Validation result
+ */
+export async function validateKey(plainKey) {
+    try {
+        // Hash the key
+        const hashedKey = hashKey(plainKey);
+        
+        // Find the key in database
+        const result = await turso.execute({
+            sql: `SELECT pk.*, c.name as customer_name, c.email as customer_email 
+                  FROM pro_keys pk 
+                  LEFT JOIN customers c ON pk.id = c.pro_key_id 
+                  WHERE pk.key_hash = ? AND pk.status = 'active'`,
+            args: [hashedKey]
+        });
+        
+        if (result.rows.length === 0) {
+            return {
+                isValid: false,
+                keyData: null,
+                reason: 'Key not found or inactive'
+            };
+        }
+        
+        const keyData = result.rows[0];
+        
+        // Check expiration if expires_at is set
+        if (keyData.expires_at) {
+            const now = new Date();
+            const expiresAt = new Date(keyData.expires_at);
+            
+            if (now > expiresAt) {
+                return {
+                    isValid: false,
+                    keyData: keyData,
+                    reason: 'Key expired'
+                };
+            }
+        }
+        
+        return {
+            isValid: true,
+            keyData: keyData,
+            reason: 'Valid key'
+        };
+        
+    } catch (error) {
+        console.error('❌ Error validating key:', error);
+        throw error;
+    }
 } 
