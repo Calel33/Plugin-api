@@ -1,0 +1,47 @@
+# Render.com deployment configuration for HustlePlug Pro Validation API
+# This replaces the Vercel deployment setup
+
+services:
+  - type: web
+    name: hustleplug-pro-api
+    env: node
+    plan: starter  # Free tier, upgrade to paid for production
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000  # Render's default port
+      - key: TURSO_DATABASE_URL
+        sync: false  # Set this in Render dashboard
+      - key: TURSO_AUTH_TOKEN
+        sync: false  # Set this in Render dashboard
+      - key: PRO_SALT
+        value: AgentHustle2024ProSalt!@#$%^&*()_+SecureKey
+    
+    # Auto-deploy settings
+    autoDeploy: true
+    branch: main  # Deploy from main branch
+    
+    # Resource limits (adjust based on usage)
+    disk:
+      name: data
+      mountPath: /data
+      sizeGB: 1
+    
+    # Health check configuration
+    healthCheck:
+      path: /health
+      intervalSeconds: 30
+      timeoutSeconds: 10
+      unhealthyThresholdCount: 3
+      healthyThresholdCount: 2
+
+# Environment setup instructions:
+# 1. Connect your GitHub repository to Render
+# 2. Set environment variables in Render dashboard:
+#    - TURSO_DATABASE_URL: Your Turso database URL
+#    - TURSO_AUTH_TOKEN: Your Turso authentication token
+# 3. Deploy will happen automatically on git push to main branch 

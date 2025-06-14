@@ -1,0 +1,29 @@
+{
+  "name": "hustleplug-pro-validation",
+  "version": "1.0.0",
+  "description": "Enhanced Pro Key Validation API for HustlePlug Chrome Extension",
+  "type": "module",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "dev": "nodemon app.js",
+    "deploy": "vercel --prod",
+    "generate-hashes": "node generate-hashes.js",
+    "setup-db": "turso db shell hustleplug-pro-keys < schema.sql",
+    "migrate": "node migrate-to-turso.js",
+    "test-api": "node test-api.js"
+  },
+  "keywords": ["chrome-extension", "pro-validation", "membership", "turso"],
+  "author": "HustlePlug",
+  "license": "MIT",
+  "dependencies": {
+    "@libsql/client": "^0.5.2",
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "helmet": "^7.1.0",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+} 
