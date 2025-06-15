@@ -185,18 +185,48 @@ export async function checkDatabaseHealth() {
  */
 export async function logKeyUsage(proKeyId, ipAddress, userAgent, action = 'validate') {
     try {
-        // Start a transaction to ensure atomicity
-        await turso.execute('BEGIN TRANSACTION');
+        // Use Turso's batch execution for atomicity instead of manual transactions
+        const batch = [
+            {
+                sql: `INSERT INTO key_usage (pro_key_id, ip_address, user_agent, action, used_at) 
+                      VALUES (?, ?, ?, ?, datetime('now'))`,
+                args: [proKeyId, ipAddress, userAgent, action]
+            },
+            {
+                sql: `UPDATE pro_keys 
+                      SET usage_count = usage_count + 1, 
+                          last_used = datetime('now') 
+                      WHERE id = ?`,
+                args: [proKeyId]
+            }
+        ];
         
+        // Execute batch atomically
+        const results = await turso.batch(batch);
+        
+        console.log(`📊 Usage logged: Key ID ${proKeyId}, Action: ${action}, IP: ${ipAddress.substring(0, 15)}...`);
+        
+        return {
+            success: true,
+            usageId: results[0].lastInsertRowid,
+            updated: results[1].rowsAffected > 0
+        };
+        
+    } catch (error) {
+        console.error('❌ Error logging key usage:', error);
+        
+        // If batch fails, try individual operations (fallback)
         try {
-            // Insert usage log
+            console.log('🔄 Attempting fallback: individual operations...');
+            
+            // Just insert usage log without transaction
             const usageResult = await turso.execute({
                 sql: `INSERT INTO key_usage (pro_key_id, ip_address, user_agent, action, used_at) 
                       VALUES (?, ?, ?, ?, datetime('now'))`,
                 args: [proKeyId, ipAddress, userAgent, action]
             });
             
-            // Update usage counter atomically
+            // Update usage counter separately
             const updateResult = await turso.execute({
                 sql: `UPDATE pro_keys 
                       SET usage_count = usage_count + 1, 
@@ -205,26 +235,19 @@ export async function logKeyUsage(proKeyId, ipAddress, userAgent, action = 'vali
                 args: [proKeyId]
             });
             
-            // Commit transaction
-            await turso.execute('COMMIT');
-            
-            console.log(`📊 Usage logged: Key ID ${proKeyId}, Action: ${action}, IP: ${ipAddress.substring(0, 15)}...`);
+            console.log(`📊 Usage logged (fallback): Key ID ${proKeyId}, Action: ${action}`);
             
             return {
                 success: true,
                 usageId: usageResult.lastInsertRowid,
-                updated: updateResult.rowsAffected > 0
+                updated: updateResult.rowsAffected > 0,
+                fallback: true
             };
             
-        } catch (transactionError) {
-            // Rollback on error
-            await turso.execute('ROLLBACK');
-            throw transactionError;
+        } catch (fallbackError) {
+            console.error('❌ Fallback also failed:', fallbackError);
+            throw fallbackError;
         }
-        
-    } catch (error) {
-        console.error('❌ Error logging key usage:', error);
-        throw error;
     }
 }
 

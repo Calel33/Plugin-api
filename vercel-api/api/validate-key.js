@@ -129,13 +129,17 @@ export default async function handler(req, res) {
         const result = await validateKey(key);
         
         if (result.isValid) {
-            // Log successful usage
-            await logKeyUsage(
-                result.keyData.id,
-                clientIP,
-                req.headers['user-agent'] || 'Unknown',
-                'validate'
-            );
+            // Try to log successful usage, but don't fail if logging fails
+            try {
+                await logKeyUsage(
+                    result.keyData.id,
+                    clientIP,
+                    req.headers['user-agent'] || 'Unknown',
+                    'validate'
+                );
+            } catch (loggingError) {
+                console.warn('⚠️ Usage logging failed, but continuing with validation:', loggingError.message);
+            }
             
             console.log(`✅ Valid key used: ${result.keyData.notes?.substring(0, 30)}... (Usage: ${result.keyData.usage_count + 1})`);
             
