@@ -1,7 +1,21 @@
 // Database Queries Module
 // Contains all SQL queries for pro key validation and management
 
+import crypto from 'crypto';
 import { turso } from './connection.js';
+
+// Salt for hashing (should match your extension's salt)
+const PRO_SALT = 'AgentHustle2024ProSalt!@#$%^&*()_+SecureKey';
+
+/**
+ * Hash a key using the same algorithm as the extension
+ * @param {string} key - Plain text key
+ * @param {string} salt - Salt for hashing
+ * @returns {string} - Hashed key
+ */
+function hashKey(key, salt = PRO_SALT) {
+    return crypto.createHash('sha256').update(key + salt).digest('hex');
+}
 
 /**
  * Find a pro key by its hash
