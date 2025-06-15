@@ -143,15 +143,25 @@ export default async function handler(req, res) {
             
             console.log(`✅ Valid key used: ${result.keyData.notes?.substring(0, 30)}... (Usage: ${result.keyData.usage_count + 1})`);
             
+            // Calculate expiration details
+            const now = new Date();
+            const expiresAt = result.keyData.expires_at ? new Date(result.keyData.expires_at) : null;
+            const isExpired = expiresAt ? now > expiresAt : false;
+            const daysRemaining = expiresAt ? Math.max(0, Math.ceil((expiresAt - now) / (1000 * 60 * 60 * 24))) : null;
+            
             return res.status(200).json({
                 success: true,
                 isPro: true,
                 message: 'Valid pro key',
                 membershipDetails: {
-                    status: 'active',
-                    tier: 'pro',
+                    status: isExpired ? 'expired' : 'active',
+                    tier: result.keyData.tier || 'pro',
                     usageCount: result.keyData.usage_count + 1,
                     lastUsed: new Date().toISOString(),
+                    createdAt: result.keyData.created_at || null,
+                    expiresAt: result.keyData.expires_at || null,
+                    daysRemaining: daysRemaining,
+                    isExpired: isExpired,
                     notes: result.keyData.notes
                 }
             });
