@@ -1,4 +1,4 @@
-// HustlePlug Pro Validation API - Express.js Server
+// HustlePlug Pro Validation API - Express.js Server 
 // Migrated from Vercel serverless to Express for Render deployment
 // Maintains full backward compatibility with Chrome extension
 
@@ -14,20 +14,6 @@ dotenv.config();
 
 // Import the validation handler (converted from serverless function)
 import validateKeyHandler from './api/validate-key.js';
-
-// Import automation handlers
-import { 
-    createSchedule, 
-    manualExecute, 
-    getScheduleLimit, 
-    getUserSchedules, 
-    deleteSchedule,
-    updateSchedule,
-    getAutomationStatistics 
-} from './api/scheduled-prompts.js';
-import { initializeScheduler } from './services/scheduler.js';
-import { initializeAutomationDatabase } from './db/init-automation.js';
-import { initUserSettings } from './db/init-user-settings.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -108,15 +94,6 @@ app.post('/api/validate-key', async (req, res) => {
     }
 });
 
-// Automation endpoints
-app.post('/api/scheduled-prompts', createSchedule);
-app.get('/api/scheduled-prompts/limit/:proKey', getScheduleLimit);
-app.get('/api/scheduled-prompts/user/:proKey', getUserSchedules);
-app.delete('/api/scheduled-prompts/:scheduleId/:proKey', deleteSchedule);
-app.put('/api/scheduled-prompts/:scheduleId/:proKey', updateSchedule);
-app.get('/api/scheduled-prompts/stats/:proKey', getAutomationStatistics);
-app.post('/api/scheduled-prompts/execute', manualExecute);
-
 // Handle preflight requests for CORS
 app.options('*', (req, res) => {
     res.status(200).end();
@@ -162,15 +139,7 @@ async function startServer() {
             console.log(`🚀 HustlePlug Pro Validation API running on port ${PORT}`);
             console.log(`📊 Health check: http://localhost:${PORT}/health`);
             console.log(`🔑 Validation endpoint: http://localhost:${PORT}/api/validate-key`);
-            console.log(`⏰ Automation endpoint: http://localhost:${PORT}/api/scheduled-prompts`);
             console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
-            
-            // Initialize database tables
-            initializeAutomationDatabase();
-            initUserSettings();
-            
-            // Initialize automation scheduler
-            initializeScheduler();
         });
         
     } catch (error) {
