@@ -48,7 +48,7 @@ export async function createScheduledPrompt(scheduleData) {
 
         return {
             success: true,
-            scheduleId: result.lastInsertRowid,
+            scheduleId: Number(result.lastInsertRowid),
             scheduledTime: scheduledTime,
             displayTime: displayTime,
             message: `Prompt scheduled for ${displayTime}`
@@ -74,7 +74,7 @@ export async function checkUserScheduleLimit(proKeyId) {
             args: [proKeyId]
         });
 
-        const currentCount = result.rows[0]?.current_count || 0;
+        const currentCount = Number(result.rows[0]?.current_count || 0);
         const maxSchedules = 10;
 
         return {
@@ -243,7 +243,7 @@ export async function logAutomationExecution(logData) {
 
         return {
             success: true,
-            logId: result.lastInsertRowid
+            logId: Number(result.lastInsertRowid)
         };
 
     } catch (error) {

@@ -160,9 +160,9 @@ export async function checkDatabaseHealth() {
 
         return {
             status: 'healthy',
-            total_keys: keysCount.rows[0].count,
-            total_customers: customersCount.rows[0].count,
-            usage_last_24h: usageCount.rows[0].count,
+            total_keys: Number(keysCount.rows[0].count),
+            total_customers: Number(customersCount.rows[0].count),
+            usage_last_24h: Number(usageCount.rows[0].count),
             timestamp: new Date().toISOString()
         };
     } catch (error) {
@@ -208,7 +208,7 @@ export async function logKeyUsage(proKeyId, ipAddress, userAgent, action = 'vali
         
         return {
             success: true,
-            usageId: results[0].lastInsertRowid,
+            usageId: Number(results[0].lastInsertRowid),
             updated: results[1].rowsAffected > 0
         };
         
@@ -239,7 +239,7 @@ export async function logKeyUsage(proKeyId, ipAddress, userAgent, action = 'vali
             
             return {
                 success: true,
-                usageId: usageResult.lastInsertRowid,
+                usageId: Number(usageResult.lastInsertRowid),
                 updated: updateResult.rowsAffected > 0,
                 fallback: true
             };

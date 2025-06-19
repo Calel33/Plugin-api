@@ -10,6 +10,65 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 /**
+ * Parse SQL statements from schema, properly handling triggers and complex blocks
+ * @param {string} sql - The SQL schema content
+ * @returns {Array<string>} - Array of individual SQL statements
+ */
+function parseSQLStatements(sql) {
+    const statements = [];
+    let currentStatement = '';
+    let inTrigger = false;
+    let triggerDepth = 0;
+    
+    // Split by lines to handle trigger blocks properly
+    const lines = sql.split('\n');
+    
+    for (const line of lines) {
+        const trimmedLine = line.trim();
+        
+        // Skip empty lines and comments
+        if (!trimmedLine || trimmedLine.startsWith('--')) {
+            continue;
+        }
+        
+        currentStatement += (currentStatement ? '\n' : '') + line;
+        
+        // Check for trigger start
+        if (trimmedLine.toUpperCase().includes('CREATE TRIGGER')) {
+            inTrigger = true;
+        }
+        
+        // Track BEGIN/END blocks in triggers
+        if (inTrigger) {
+            if (trimmedLine.toUpperCase() === 'BEGIN') {
+                triggerDepth++;
+            } else if (trimmedLine.toUpperCase() === 'END;') {
+                triggerDepth--;
+                if (triggerDepth === 0) {
+                    inTrigger = false;
+                    statements.push(currentStatement.trim());
+                    currentStatement = '';
+                    continue;
+                }
+            }
+        }
+        
+        // For non-trigger statements, split on semicolon
+        if (!inTrigger && trimmedLine.endsWith(';')) {
+            statements.push(currentStatement.trim());
+            currentStatement = '';
+        }
+    }
+    
+    // Add any remaining statement
+    if (currentStatement.trim()) {
+        statements.push(currentStatement.trim());
+    }
+    
+    return statements.filter(stmt => stmt.length > 0);
+}
+
+/**
  * Initialize automation database tables
  */
 export async function initializeAutomationDatabase() {
@@ -20,11 +79,8 @@ export async function initializeAutomationDatabase() {
         const schemaPath = path.join(__dirname, 'schema-automation.sql');
         const schema = fs.readFileSync(schemaPath, 'utf8');
 
-        // Split into individual statements
-        const statements = schema
-            .split(';')
-            .map(stmt => stmt.trim())
-            .filter(stmt => stmt.length > 0);
+        // Parse SQL statements properly (handle triggers and complex statements)
+        const statements = parseSQLStatements(schema);
 
         // Execute each statement
         for (const statement of statements) {
@@ -38,6 +94,7 @@ export async function initializeAutomationDatabase() {
                 } else {
                     console.error(`❌ Error executing statement: ${statement.substring(0, 50)}...`);
                     console.error('Error:', error.message);
+                    // Don't throw, continue with other statements
                 }
             }
         }
