@@ -206,12 +206,12 @@ export async function deleteScheduledPrompt(scheduleId, proKeyId) {
     try {
         const result = await turso.execute({
             sql: `DELETE FROM scheduled_prompts 
-                  WHERE id = ? AND pro_key_id = ? AND status = 'pending'`,
+                  WHERE id = ? AND pro_key_id = ?`,
             args: [scheduleId, proKeyId]
         });
 
         if (result.rowsAffected === 0) {
-            throw new Error('Schedule not found or cannot be deleted (may already be completed)');
+            throw new Error('Schedule not found or access denied');
         }
 
         console.log(`🗑️ Deleted scheduled prompt: ID ${scheduleId}`);
