@@ -21,7 +21,8 @@ import {
     manualExecute, 
     getScheduleLimit, 
     getUserSchedules, 
-    deleteSchedule, 
+    deleteSchedule,
+    updateSchedule,
     getAutomationStatistics 
 } from './api/scheduled-prompts.js';
 import { initializeScheduler } from './services/scheduler.js';
@@ -112,6 +113,7 @@ app.post('/api/scheduled-prompts', createSchedule);
 app.get('/api/scheduled-prompts/limit/:proKey', getScheduleLimit);
 app.get('/api/scheduled-prompts/user/:proKey', getUserSchedules);
 app.delete('/api/scheduled-prompts/:scheduleId/:proKey', deleteSchedule);
+app.put('/api/scheduled-prompts/:scheduleId/:proKey', updateSchedule);
 app.get('/api/scheduled-prompts/stats/:proKey', getAutomationStatistics);
 app.post('/api/scheduled-prompts/execute', manualExecute);
 

@@ -9,6 +9,7 @@ import {
     logAutomationExecution,
     getUserScheduledPrompts,
     deleteScheduledPrompt,
+    updateScheduledPrompt,
     getAutomationStats
 } from '../db/automation-queries.js';
 import { validateKey, getUserIntegrationSettings } from '../db/queries.js';
@@ -438,6 +439,75 @@ export async function deleteSchedule(req, res) {
         return res.status(500).json({
             success: false,
             message: 'Failed to delete schedule',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+}
+
+/**
+ * Update a scheduled prompt
+ * PUT /api/scheduled-prompts/:scheduleId/:proKey
+ */
+export async function updateSchedule(req, res) {
+    try {
+        const { scheduleId, proKey } = req.params;
+        const { scheduled_time, send_to_telegram, send_to_discord, user_timezone } = req.body;
+
+        // Validate required fields
+        if (!scheduled_time) {
+            return res.status(400).json({
+                success: false,
+                message: 'Missing required field: scheduled_time'
+            });
+        }
+
+        // Validate pro key
+        const userData = await validateProKey(proKey);
+
+        // Use provided timezone or default to UTC
+        const userTimezone = user_timezone || 'UTC';
+
+        // Prepare update data
+        const updateData = {
+            scheduledTime: new Date(scheduled_time).toISOString(),
+            userTimezone: userTimezone,
+            integrations: {
+                telegram: Boolean(send_to_telegram),
+                discord: Boolean(send_to_discord)
+            }
+        };
+
+        // Update the schedule
+        const result = await updateScheduledPrompt(parseInt(scheduleId), userData.id, updateData);
+
+        console.log(`✅ Schedule updated successfully: ID ${scheduleId} for ${result.displayTime}`);
+
+        return res.status(200).json({
+            success: true,
+            data: result,
+            message: result.message
+        });
+
+    } catch (error) {
+        console.error('❌ Error updating schedule:', error);
+
+        if (error.message.includes('not found') || error.message.includes('access denied')) {
+            return res.status(404).json({
+                success: false,
+                message: error.message
+            });
+        }
+
+        if (error.message.includes('only edit pending') || error.message.includes('future')) {
+            return res.status(400).json({
+                success: false,
+                message: error.message
+            });
+        }
+
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to update schedule',
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }

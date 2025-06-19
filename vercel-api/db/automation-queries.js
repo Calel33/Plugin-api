@@ -199,27 +199,135 @@ export async function updateScheduledPromptStatus(scheduleId, status) {
 /**
  * Delete a scheduled prompt
  * @param {number} scheduleId - Schedule ID
- * @param {number} proKeyId - Pro key ID (for security)
+ * @param {number} proKeyId - Pro key ID for ownership verification
  * @returns {Promise<boolean>} - Success status
  */
 export async function deleteScheduledPrompt(scheduleId, proKeyId) {
     try {
         const result = await turso.execute({
             sql: `DELETE FROM scheduled_prompts 
-                  WHERE id = ? AND pro_key_id = ?`,
+                  WHERE id = ? AND pro_key_id = ? AND status = 'pending'`,
             args: [scheduleId, proKeyId]
         });
 
-        if (result.rowsAffected > 0) {
-            console.log(`🗑️ Deleted scheduled prompt: ID ${scheduleId}`);
-            return true;
+        if (result.rowsAffected === 0) {
+            throw new Error('Schedule not found or cannot be deleted (may already be completed)');
         }
 
-        return false;
+        console.log(`🗑️ Deleted scheduled prompt: ID ${scheduleId}`);
+        return true;
 
     } catch (error) {
         console.error('❌ Error deleting scheduled prompt:', error);
         throw error;
+    }
+}
+
+/**
+ * Update a scheduled prompt
+ * @param {number} scheduleId - Schedule ID
+ * @param {number} proKeyId - Pro key ID for ownership verification
+ * @param {Object} updateData - Data to update
+ * @returns {Promise<Object>} - Updated schedule data
+ */
+export async function updateScheduledPrompt(scheduleId, proKeyId, updateData) {
+    try {
+        const {
+            scheduledTime,
+            userTimezone,
+            integrations
+        } = updateData;
+
+        // Validate that the schedule exists and belongs to the user
+        const existingResult = await turso.execute({
+            sql: `SELECT id, status, user_timezone FROM scheduled_prompts 
+                  WHERE id = ? AND pro_key_id = ?`,
+            args: [scheduleId, proKeyId]
+        });
+
+        if (existingResult.rows.length === 0) {
+            throw new Error('Schedule not found or access denied');
+        }
+
+        const existing = existingResult.rows[0];
+        
+        // Only allow editing pending schedules
+        if (existing.status !== 'pending') {
+            throw new Error('Can only edit pending schedules');
+        }
+
+        // Validate scheduled time is in the future
+        const scheduleDate = new Date(scheduledTime);
+        const now = new Date();
+        const minimumTime = new Date(now.getTime() + 10000); // 10 second buffer
+
+        if (scheduleDate <= minimumTime) {
+            throw new Error('Scheduled time must be at least 10 seconds in the future');
+        }
+
+        // Format display time using the timezone
+        const displayTime = formatDisplayTime(scheduledTime, userTimezone || existing.user_timezone);
+
+        // Update the scheduled prompt
+        const result = await turso.execute({
+            sql: `UPDATE scheduled_prompts 
+                  SET scheduled_time = ?, 
+                      user_timezone = ?, 
+                      display_time = ?, 
+                      integrations = ?, 
+                      updated_at = datetime('now')
+                  WHERE id = ? AND pro_key_id = ?`,
+            args: [
+                scheduledTime,
+                userTimezone || existing.user_timezone,
+                displayTime,
+                JSON.stringify(integrations || {}),
+                scheduleId,
+                proKeyId
+            ]
+        });
+
+        if (result.rowsAffected === 0) {
+            throw new Error('Failed to update schedule');
+        }
+
+        console.log(`✏️ Updated scheduled prompt: ID ${scheduleId} for ${displayTime}`);
+
+        return {
+            success: true,
+            scheduleId: scheduleId,
+            scheduledTime: scheduledTime,
+            displayTime: displayTime,
+            message: `Schedule updated for ${displayTime}`
+        };
+
+    } catch (error) {
+        console.error('❌ Error updating scheduled prompt:', error);
+        throw error;
+    }
+}
+
+/**
+ * Format datetime for user's timezone display
+ * @param {string} scheduledTime - ISO datetime string
+ * @param {string} userTimezone - User's timezone
+ * @returns {string} - Formatted display time
+ */
+function formatDisplayTime(scheduledTime, userTimezone) {
+    try {
+        const date = new Date(scheduledTime);
+        return date.toLocaleString('en-US', {
+            timeZone: userTimezone,
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            timeZoneName: 'short'
+        });
+    } catch (error) {
+        console.warn('Error formatting display time:', error);
+        return new Date(scheduledTime).toLocaleString();
     }
 }
 
