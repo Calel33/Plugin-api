@@ -304,7 +304,7 @@ export async function validateKey(plainKey) {
         console.error('❌ Error validating key:', error);
         throw error;
     }
-}
+} 
 
 // ============================================================================
 // USER INTEGRATION SETTINGS FUNCTIONS

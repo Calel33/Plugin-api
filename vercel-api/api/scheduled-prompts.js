@@ -98,14 +98,17 @@ export async function createSchedule(req, res) {
         // Validate pro key
         const userData = await validateProKey(proKey);
 
-        // Validate scheduled time is in the future
+                // Validate scheduled time is in the future with buffer
         const scheduleDate = new Date(scheduledTime);
         const now = new Date();
         
-        if (scheduleDate <= now) {
+        // Add 10 second buffer to account for processing time
+        const minimumTime = new Date(now.getTime() + 10000);
+
+        if (scheduleDate <= minimumTime) {
             return res.status(400).json({
                 success: false,
-                message: 'Scheduled time must be in the future'
+                message: 'Scheduled time must be at least 10 seconds in the future'
             });
         }
 
