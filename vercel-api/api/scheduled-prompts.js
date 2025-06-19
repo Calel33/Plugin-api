@@ -11,7 +11,7 @@ import {
     deleteScheduledPrompt,
     getAutomationStats
 } from '../db/automation-queries.js';
-import { validateKey } from '../db/queries.js';
+import { validateKey, getUserIntegrationSettings } from '../db/queries.js';
 
 // Temporary Discord and Telegram integration functions (inline)
 // TODO: Move to separate service file later
@@ -190,9 +190,9 @@ export async function getScheduleLimit(req, res) {
 export async function executeScheduledPrompts() {
     try {
         console.log('🔍 Checking for due scheduled prompts...');
-
+        
         const duePrompts = await getDueScheduledPrompts();
-
+        
         if (duePrompts.length === 0) {
             console.log('📭 No scheduled prompts due for execution');
             return { executed: 0, failed: 0 };
@@ -207,9 +207,9 @@ export async function executeScheduledPrompts() {
         for (const prompt of duePrompts) {
             try {
                 const startTime = Date.now();
-
+                
                 console.log(`🚀 Executing scheduled prompt: ${prompt.prompt_title} (ID: ${prompt.id})`);
-
+                
                 // Create comprehensive analysis result
                 const analysisData = {
                     analysisType: prompt.prompt_title,
@@ -299,9 +299,9 @@ export async function executeScheduledPrompts() {
                         console.error(`❌ Discord integration error for prompt ${prompt.id}:`, discordError);
                     }
                 }
-
+                
                 const executionDuration = Date.now() - startTime;
-
+                
                 // Log successful execution with integration results
                 await logAutomationExecution({
                     scheduledPromptId: prompt.id,
@@ -310,17 +310,17 @@ export async function executeScheduledPrompts() {
                     integrationResults: integrationResults,
                     executionDuration: executionDuration
                 });
-
+                
                 // Update prompt status to completed
                 await updateScheduledPromptStatus(prompt.id, 'completed');
-
+                
                 console.log(`✅ Successfully executed scheduled prompt: ${prompt.prompt_title}`);
                 console.log(`📊 Automation execution logged: Schedule ${prompt.id}, Status: success`);
                 executed++;
 
             } catch (executionError) {
                 console.error(`❌ Failed to execute scheduled prompt ${prompt.id}:`, executionError);
-
+                
                 // Log failed execution
                 await logAutomationExecution({
                     scheduledPromptId: prompt.id,
@@ -328,10 +328,10 @@ export async function executeScheduledPrompts() {
                     errorMessage: executionError.message,
                     executionDuration: 0
                 });
-
+                
                 // Update prompt status to failed
                 await updateScheduledPromptStatus(prompt.id, 'failed');
-
+                
                 failed++;
             }
         }
@@ -498,17 +498,26 @@ export async function healthCheck(req, res) {
     }
 }
 
-// Chrome storage simulation for server-side usage (will use database instead)
+/**
+ * Get Discord settings for a pro key ID from database
+ * @param {number} proKeyId - Pro key ID
+ * @returns {Promise<Object|null>} - Discord settings or null
+ */
 async function getDiscordSettings(proKeyId) {
     try {
-        // In a real implementation, this would query the database for user's Discord settings
-        // For now, we'll need to add Discord settings to the database schema
         console.log(`🔍 Getting Discord settings for pro key ID: ${proKeyId}`);
 
-        // TODO: Implement database query for Discord webhook URL
-        // This should query a user_settings table or similar
+        // Get Discord integration settings from database
+        const settings = await getUserIntegrationSettings(proKeyId, 'discord');
         
-        // TEMPORARY: Return test Discord settings if available via environment variable
+        if (settings && settings.settings && settings.settings.webhookUrl) {
+            console.log(`✅ Found Discord webhook URL for pro key ID: ${proKeyId}`);
+            return {
+                webhookUrl: settings.settings.webhookUrl
+            };
+        }
+
+        // Fallback to environment variable for testing
         const testWebhookUrl = process.env.TEST_DISCORD_WEBHOOK_URL;
         if (testWebhookUrl) {
             console.log('🧪 Using test Discord webhook URL from environment');
@@ -518,22 +527,34 @@ async function getDiscordSettings(proKeyId) {
         }
 
         console.warn(`⚠️ No Discord settings configured for pro key ID: ${proKeyId}`);
-        return null; // Placeholder - needs proper database integration
+        return null;
     } catch (error) {
-        console.error('Error getting Discord settings:', error);
+        console.error('❌ Error getting Discord settings:', error);
         return null;
     }
 }
 
+/**
+ * Get Telegram settings for a pro key ID from database
+ * @param {number} proKeyId - Pro key ID
+ * @returns {Promise<Object|null>} - Telegram settings or null
+ */
 async function getTelegramSettings(proKeyId) {
     try {
-        // In a real implementation, this would query the database for user's Telegram settings
         console.log(`🔍 Getting Telegram settings for pro key ID: ${proKeyId}`);
 
-        // TODO: Implement database query for Telegram bot token and chat ID
-        // This should query a user_settings table or similar
+        // Get Telegram integration settings from database
+        const settings = await getUserIntegrationSettings(proKeyId, 'telegram');
         
-        // TEMPORARY: Return test Telegram settings if available via environment variables
+        if (settings && settings.settings && settings.settings.botToken && settings.settings.chatId) {
+            console.log(`✅ Found Telegram settings for pro key ID: ${proKeyId}`);
+            return {
+                botToken: settings.settings.botToken,
+                chatId: settings.settings.chatId
+            };
+        }
+
+        // Fallback to environment variables for testing
         const testBotToken = process.env.TEST_TELEGRAM_BOT_TOKEN;
         const testChatId = process.env.TEST_TELEGRAM_CHAT_ID;
         
@@ -546,9 +567,9 @@ async function getTelegramSettings(proKeyId) {
         }
 
         console.warn(`⚠️ No Telegram settings configured for pro key ID: ${proKeyId}`);
-        return null; // Placeholder - needs proper database integration
+        return null;
     } catch (error) {
-        console.error('Error getting Telegram settings:', error);
+        console.error('❌ Error getting Telegram settings:', error);
         return null;
     }
 }

@@ -304,4 +304,153 @@ export async function validateKey(plainKey) {
         console.error('❌ Error validating key:', error);
         throw error;
     }
+}
+
+// ============================================================================
+// USER INTEGRATION SETTINGS FUNCTIONS
+// ============================================================================
+
+/**
+ * Get user integration settings by pro key ID and integration type
+ * @param {number} proKeyId - Pro key ID
+ * @param {string} integrationType - 'discord' or 'telegram'
+ * @returns {Promise<Object|null>} - Integration settings or null
+ */
+export async function getUserIntegrationSettings(proKeyId, integrationType) {
+    try {
+        const result = await turso.execute({
+            sql: `SELECT id, pro_key_id, integration_type, settings, created_at, updated_at
+                  FROM user_integration_settings 
+                  WHERE pro_key_id = ? AND integration_type = ? AND is_active = TRUE`,
+            args: [proKeyId, integrationType]
+        });
+
+        if (result.rows.length === 0) {
+            return null;
+        }
+
+        const row = result.rows[0];
+        
+        // Parse JSON settings
+        try {
+            row.settings = JSON.parse(row.settings);
+        } catch (parseError) {
+            console.error('Error parsing integration settings JSON:', parseError);
+            return null;
+        }
+
+        return row;
+    } catch (error) {
+        console.error('❌ Error getting user integration settings:', error);
+        throw error;
+    }
+}
+
+/**
+ * Save or update user integration settings
+ * @param {number} proKeyId - Pro key ID
+ * @param {string} integrationType - 'discord' or 'telegram'
+ * @param {Object} settings - Settings object (will be JSON stringified)
+ * @returns {Promise<Object>} - Save result
+ */
+export async function saveUserIntegrationSettings(proKeyId, integrationType, settings) {
+    try {
+        // Validate integration type
+        if (!['discord', 'telegram'].includes(integrationType)) {
+            throw new Error('Invalid integration type. Must be "discord" or "telegram"');
+        }
+
+        // Convert settings to JSON string
+        const settingsJson = JSON.stringify(settings);
+
+        // Check if settings already exist
+        const existing = await getUserIntegrationSettings(proKeyId, integrationType);
+
+        if (existing) {
+            // Update existing settings
+            const result = await turso.execute({
+                sql: `UPDATE user_integration_settings 
+                      SET settings = ?, updated_at = datetime('now')
+                      WHERE pro_key_id = ? AND integration_type = ?`,
+                args: [settingsJson, proKeyId, integrationType]
+            });
+
+            return {
+                success: true,
+                action: 'updated',
+                id: existing.id,
+                rowsAffected: result.rowsAffected
+            };
+        } else {
+            // Insert new settings
+            const result = await turso.execute({
+                sql: `INSERT INTO user_integration_settings (pro_key_id, integration_type, settings)
+                      VALUES (?, ?, ?)`,
+                args: [proKeyId, integrationType, settingsJson]
+            });
+
+            return {
+                success: true,
+                action: 'created',
+                id: Number(result.lastInsertRowid),
+                rowsAffected: result.rowsAffected
+            };
+        }
+    } catch (error) {
+        console.error('❌ Error saving user integration settings:', error);
+        throw error;
+    }
+}
+
+/**
+ * Delete user integration settings
+ * @param {number} proKeyId - Pro key ID
+ * @param {string} integrationType - 'discord' or 'telegram'
+ * @returns {Promise<boolean>} - True if deleted
+ */
+export async function deleteUserIntegrationSettings(proKeyId, integrationType) {
+    try {
+        const result = await turso.execute({
+            sql: `UPDATE user_integration_settings 
+                  SET is_active = FALSE, updated_at = datetime('now')
+                  WHERE pro_key_id = ? AND integration_type = ?`,
+            args: [proKeyId, integrationType]
+        });
+
+        return result.rowsAffected > 0;
+    } catch (error) {
+        console.error('❌ Error deleting user integration settings:', error);
+        throw error;
+    }
+}
+
+/**
+ * Get all integration settings for a pro key
+ * @param {number} proKeyId - Pro key ID
+ * @returns {Promise<Array>} - Array of integration settings
+ */
+export async function getAllUserIntegrationSettings(proKeyId) {
+    try {
+        const result = await turso.execute({
+            sql: `SELECT id, pro_key_id, integration_type, settings, created_at, updated_at
+                  FROM user_integration_settings 
+                  WHERE pro_key_id = ? AND is_active = TRUE
+                  ORDER BY integration_type`,
+            args: [proKeyId]
+        });
+
+        // Parse JSON settings for each row
+        return result.rows.map(row => {
+            try {
+                row.settings = JSON.parse(row.settings);
+            } catch (parseError) {
+                console.error('Error parsing integration settings JSON:', parseError);
+                row.settings = {};
+            }
+            return row;
+        });
+    } catch (error) {
+        console.error('❌ Error getting all user integration settings:', error);
+        throw error;
+    }
 } 
