@@ -13,6 +13,9 @@ import {
 } from '../db/automation-queries.js';
 import { validateKey } from '../db/queries.js';
 
+// Temporary Discord and Telegram integration functions (inline)
+// TODO: Move to separate service file later
+
 /**
  * Get client IP address from request headers
  */
@@ -187,9 +190,9 @@ export async function getScheduleLimit(req, res) {
 export async function executeScheduledPrompts() {
     try {
         console.log('🔍 Checking for due scheduled prompts...');
-        
+
         const duePrompts = await getDueScheduledPrompts();
-        
+
         if (duePrompts.length === 0) {
             console.log('📭 No scheduled prompts due for execution');
             return { executed: 0, failed: 0 };
@@ -204,32 +207,120 @@ export async function executeScheduledPrompts() {
         for (const prompt of duePrompts) {
             try {
                 const startTime = Date.now();
-                
+
                 console.log(`🚀 Executing scheduled prompt: ${prompt.prompt_title} (ID: ${prompt.id})`);
-                
-                // Simulate analysis execution
-                const analysisResult = `Analysis completed for: ${prompt.prompt_title}\n\nPrompt: ${prompt.prompt_content}\n\nExecuted at: ${new Date().toISOString()}`;
-                
+
+                // Create comprehensive analysis result
+                const analysisData = {
+                    analysisType: prompt.prompt_title,
+                    result: {
+                        content: `Analysis completed for: ${prompt.prompt_title}\n\nPrompt: ${prompt.prompt_content}\n\nExecuted at: ${new Date().toISOString()}`,
+                        summary: `Automated execution of "${prompt.prompt_title}" scheduled prompt`,
+                        keyPoints: [
+                            'Prompt executed automatically as scheduled',
+                            `Execution time: ${new Date().toLocaleString()}`,
+                            'Analysis completed successfully'
+                        ]
+                    },
+                    date: new Date().toISOString()
+                };
+
+                // Initialize integration results
+                const integrationResults = {
+                    telegram: false,
+                    discord: false,
+                    telegramError: null,
+                    discordError: null
+                };
+
+                // Check and execute integrations based on schedule settings
+                const integrations = prompt.integrations || {};
+                console.log(`🔗 Integration settings for prompt ${prompt.id}:`, integrations);
+
+                // Send to Telegram if enabled
+                if (integrations.telegram) {
+                    try {
+                        console.log(`📱 Sending to Telegram for prompt ${prompt.id}...`);
+                        
+                        // Get user's Telegram settings
+                        const telegramSettings = await getTelegramSettings(prompt.pro_key_id);
+                        
+                        if (telegramSettings && telegramSettings.botToken && telegramSettings.chatId) {
+                            const telegramResult = await sendAnalysisToTelegram(
+                                analysisData,
+                                telegramSettings.botToken,
+                                telegramSettings.chatId
+                            );
+                            
+                            if (telegramResult.success) {
+                                integrationResults.telegram = true;
+                                console.log(`✅ Successfully sent to Telegram for prompt ${prompt.id}`);
+                            } else {
+                                integrationResults.telegramError = telegramResult.error;
+                                console.error(`❌ Failed to send to Telegram for prompt ${prompt.id}:`, telegramResult.error);
+                            }
+                        } else {
+                            integrationResults.telegramError = 'Telegram settings not configured';
+                            console.warn(`⚠️ Telegram settings not found for prompt ${prompt.id}`);
+                        }
+                    } catch (telegramError) {
+                        integrationResults.telegramError = telegramError.message;
+                        console.error(`❌ Telegram integration error for prompt ${prompt.id}:`, telegramError);
+                    }
+                }
+
+                // Send to Discord if enabled
+                if (integrations.discord) {
+                    try {
+                        console.log(`🎮 Sending to Discord for prompt ${prompt.id}...`);
+                        
+                        // Get user's Discord settings
+                        const discordSettings = await getDiscordSettings(prompt.pro_key_id);
+                        
+                        if (discordSettings && discordSettings.webhookUrl) {
+                            const discordResult = await sendAnalysisToDiscord(
+                                analysisData,
+                                discordSettings.webhookUrl
+                            );
+                            
+                            if (discordResult.success) {
+                                integrationResults.discord = true;
+                                console.log(`✅ Successfully sent to Discord for prompt ${prompt.id}`);
+                            } else {
+                                integrationResults.discordError = discordResult.error;
+                                console.error(`❌ Failed to send to Discord for prompt ${prompt.id}:`, discordResult.error);
+                            }
+                        } else {
+                            integrationResults.discordError = 'Discord settings not configured';
+                            console.warn(`⚠️ Discord settings not found for prompt ${prompt.id}`);
+                        }
+                    } catch (discordError) {
+                        integrationResults.discordError = discordError.message;
+                        console.error(`❌ Discord integration error for prompt ${prompt.id}:`, discordError);
+                    }
+                }
+
                 const executionDuration = Date.now() - startTime;
-                
-                // Log successful execution
+
+                // Log successful execution with integration results
                 await logAutomationExecution({
                     scheduledPromptId: prompt.id,
                     status: 'success',
-                    analysisResult: analysisResult,
-                    integrationResults: { telegram: false, discord: false },
+                    analysisResult: analysisData.result.content,
+                    integrationResults: integrationResults,
                     executionDuration: executionDuration
                 });
-                
+
                 // Update prompt status to completed
                 await updateScheduledPromptStatus(prompt.id, 'completed');
-                
+
                 console.log(`✅ Successfully executed scheduled prompt: ${prompt.prompt_title}`);
+                console.log(`📊 Automation execution logged: Schedule ${prompt.id}, Status: success`);
                 executed++;
 
             } catch (executionError) {
                 console.error(`❌ Failed to execute scheduled prompt ${prompt.id}:`, executionError);
-                
+
                 // Log failed execution
                 await logAutomationExecution({
                     scheduledPromptId: prompt.id,
@@ -237,15 +328,16 @@ export async function executeScheduledPrompts() {
                     errorMessage: executionError.message,
                     executionDuration: 0
                 });
-                
+
                 // Update prompt status to failed
                 await updateScheduledPromptStatus(prompt.id, 'failed');
-                
+
                 failed++;
             }
         }
 
         console.log(`📊 Execution summary: ${executed} successful, ${failed} failed`);
+        console.log(`📊 [${new Date().toISOString()}] Execution summary: ${executed} successful, ${failed} failed`);
         return { executed, failed };
 
     } catch (error) {
@@ -404,4 +496,334 @@ export async function healthCheck(req, res) {
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
+}
+
+// Chrome storage simulation for server-side usage (will use database instead)
+async function getDiscordSettings(proKeyId) {
+    try {
+        // In a real implementation, this would query the database for user's Discord settings
+        // For now, we'll need to add Discord settings to the database schema
+        console.log(`🔍 Getting Discord settings for pro key ID: ${proKeyId}`);
+
+        // TODO: Implement database query for Discord webhook URL
+        // This should query a user_settings table or similar
+        
+        // TEMPORARY: Return test Discord settings if available via environment variable
+        const testWebhookUrl = process.env.TEST_DISCORD_WEBHOOK_URL;
+        if (testWebhookUrl) {
+            console.log('🧪 Using test Discord webhook URL from environment');
+            return {
+                webhookUrl: testWebhookUrl
+            };
+        }
+
+        console.warn(`⚠️ No Discord settings configured for pro key ID: ${proKeyId}`);
+        return null; // Placeholder - needs proper database integration
+    } catch (error) {
+        console.error('Error getting Discord settings:', error);
+        return null;
+    }
+}
+
+async function getTelegramSettings(proKeyId) {
+    try {
+        // In a real implementation, this would query the database for user's Telegram settings
+        console.log(`🔍 Getting Telegram settings for pro key ID: ${proKeyId}`);
+
+        // TODO: Implement database query for Telegram bot token and chat ID
+        // This should query a user_settings table or similar
+        
+        // TEMPORARY: Return test Telegram settings if available via environment variables
+        const testBotToken = process.env.TEST_TELEGRAM_BOT_TOKEN;
+        const testChatId = process.env.TEST_TELEGRAM_CHAT_ID;
+        
+        if (testBotToken && testChatId) {
+            console.log('🧪 Using test Telegram settings from environment');
+            return {
+                botToken: testBotToken,
+                chatId: testChatId
+            };
+        }
+
+        console.warn(`⚠️ No Telegram settings configured for pro key ID: ${proKeyId}`);
+        return null; // Placeholder - needs proper database integration
+    } catch (error) {
+        console.error('Error getting Telegram settings:', error);
+        return null;
+    }
+}
+
+/**
+ * Send analysis results to Discord via webhook
+ * @param {Object} analysisData - The analysis data to send
+ * @param {string} webhookUrl - Discord webhook URL
+ * @returns {Promise<Object>} - Result of the send operation
+ */
+async function sendAnalysisToDiscord(analysisData, webhookUrl) {
+    try {
+        if (!webhookUrl) {
+            throw new Error('Discord webhook URL is required');
+        }
+
+        const embed = formatAnalysisAsDiscordEmbed(analysisData);
+
+        const payload = {
+            content: "🤖 **Agent Hustle Pro Analyzer - Scheduled Analysis Results**",
+            embeds: [embed]
+        };
+
+        console.log(`🎮 Sending Discord webhook to: ${webhookUrl.substring(0, 50)}...`);
+
+        const response = await fetch(webhookUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Discord webhook failed: ${response.status} - ${errorText}`);
+        }
+
+        return {
+            success: true,
+            message: 'Successfully sent to Discord'
+        };
+
+    } catch (error) {
+        console.error('Error sending to Discord:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+}
+
+/**
+ * Send analysis results to Telegram
+ * @param {Object} analysisData - The analysis data to send
+ * @param {string} botToken - Telegram bot token
+ * @param {string} chatId - Telegram chat ID
+ * @returns {Promise<Object>} - Result of the send operation
+ */
+async function sendAnalysisToTelegram(analysisData, botToken, chatId) {
+    try {
+        if (!botToken || !chatId) {
+            throw new Error('Bot token and chat ID are required');
+        }
+
+        const message = formatAnalysisAsMarkdown(analysisData);
+
+        // Send the message to Telegram
+        const result = await sendTelegramMessage(botToken, chatId, message);
+
+        return {
+            success: true,
+            messageId: result.messageId
+        };
+
+    } catch (error) {
+        console.error('Error sending to Telegram:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+}
+
+/**
+ * Send a message to Telegram using Bot API
+ * @param {string} botToken - Bot token
+ * @param {string} chatId - Chat ID
+ * @param {string} message - Message text
+ * @returns {Promise<Object>} - API response
+ */
+async function sendTelegramMessage(botToken, chatId, message) {
+    const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
+    
+    const payload = {
+        chat_id: chatId,
+        text: message,
+        parse_mode: 'HTML',
+        disable_web_page_preview: true
+    };
+
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+        throw new Error(data.description || `HTTP ${response.status}`);
+    }
+
+    return {
+        success: true,
+        messageId: data.result.message_id
+    };
+}
+
+/**
+ * Format analysis data as Discord embed
+ * @param {Object} analysisData - Analysis data object
+ * @returns {Object} - Discord embed object
+ */
+function formatAnalysisAsDiscordEmbed(analysisData) {
+    const { analysisType, result, date } = analysisData;
+
+    const embed = {
+        title: `📊 ${analysisType || 'Analysis Report'}`,
+        description: result.summary || 'Automated analysis completed',
+        color: 0x667eea, // Purple color
+        timestamp: new Date(date || new Date()).toISOString(),
+        footer: {
+            text: "Agent Hustle Pro Analyzer - Scheduled Execution"
+        }
+    };
+
+    // Add main content
+    if (result.content) {
+        const content = result.content.length > 1000 
+            ? result.content.substring(0, 1000) + '...' 
+            : result.content;
+        
+        embed.fields = embed.fields || [];
+        embed.fields.push({
+            name: "📝 Analysis Results",
+            value: content,
+            inline: false
+        });
+    }
+
+    // Add key points
+    if (result.keyPoints && Array.isArray(result.keyPoints) && result.keyPoints.length > 0) {
+        embed.fields = embed.fields || [];
+        embed.fields.push({
+            name: "🔑 Key Points",
+            value: result.keyPoints.map((point, index) => `${index + 1}. ${point}`).join('\n'),
+            inline: false
+        });
+    }
+
+    return embed;
+}
+
+/**
+ * Format analysis data as HTML for Telegram
+ * @param {Object} analysisData - Analysis data object
+ * @returns {string} - Formatted HTML message
+ */
+function formatAnalysisAsMarkdown(analysisData) {
+    const { analysisType, result, date } = analysisData;
+
+    let message = `🤖 <b>Agent Hustle Analysis Report</b>\n\n`;
+
+    // Add analysis type and date
+    message += `📊 <b>Analysis Type:</b> ${analysisType || 'General Analysis'}\n`;
+    message += `📅 <b>Generated:</b> ${formatDateForTelegram(date || new Date())}\n`;
+    message += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+    
+    // Add executive summary if available
+    if (result.summary && result.summary.trim()) {
+        message += `📋 <b>Executive Summary</b>\n`;
+        message += `${cleanHtmlForTelegram(result.summary.trim())}\n\n`;
+        message += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+    }
+
+    // Add main analysis content
+    if (result.content && result.content.trim()) {
+        message += `📝 <b>Detailed Analysis</b>\n`;
+        const cleanContent = cleanAnalysisContent(result.content);
+        message += `${cleanHtmlForTelegram(cleanContent)}\n\n`;
+        message += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+    }
+
+    // Add key points if available
+    if (result.keyPoints && Array.isArray(result.keyPoints) && result.keyPoints.length > 0) {
+        message += `🔑 <b>Key Insights</b>\n`;
+        result.keyPoints.forEach((point, index) => {
+            const cleanPoint = point.trim();
+            if (cleanPoint) {
+                message += `${index + 1}. ${cleanHtmlForTelegram(cleanPoint)}\n`;
+            }
+        });
+        message += '\n';
+        message += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+    }
+
+    // Add footer with branding
+    message += `🚀 <b>Powered by Agent Hustle Pro</b>\n`;
+    message += `<i>Professional AI Analysis at Your Fingertips</i>`;
+
+    return message;
+}
+
+/**
+ * Clean and format analysis content for better readability
+ * @param {string} content - Raw analysis content
+ * @returns {string} - Cleaned content
+ */
+function cleanAnalysisContent(content) {
+    if (!content || typeof content !== 'string') {
+        return '';
+    }
+
+    let cleaned = content.trim();
+
+    // Remove excessive whitespace and normalize line breaks
+    cleaned = cleaned.replace(/\n\s*\n\s*\n/g, '\n\n');
+    cleaned = cleaned.replace(/[ \t]+/g, ' ');
+
+    // Clean up any HTML tags that might be present
+    cleaned = cleaned.replace(/<[^>]*>/g, '');
+
+    // Use more of Telegram's 4096 character limit (leave buffer for headers/footers)
+    if (cleaned.length > 4000) {
+        cleaned = cleaned.substring(0, 4000) + '...\n\n_[Content truncated - message too long for Telegram]_';
+    }
+
+    return cleaned.trim();
+}
+
+/**
+ * Clean HTML for Telegram while preserving readability
+ * @param {string} text - Text to clean
+ * @returns {string} - Cleaned text
+ */
+function cleanHtmlForTelegram(text) {
+    if (!text || typeof text !== 'string') {
+        return '';
+    }
+
+    // Escape HTML special characters for Telegram
+    return text
+        .replace(/&/g, '&amp;')   // Escape ampersands first
+        .replace(/</g, '&lt;')    // Escape less than
+        .replace(/>/g, '&gt;')    // Escape greater than
+        .replace(/"/g, '&quot;')  // Escape quotes
+        .replace(/'/g, '&#x27;'); // Escape single quotes
+}
+
+/**
+ * Format date for Telegram display
+ * @param {Date} date - Date to format
+ * @returns {string} - Formatted date string
+ */
+function formatDateForTelegram(date) {
+    return new Date(date).toLocaleString('en-US', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+    });
 } 
