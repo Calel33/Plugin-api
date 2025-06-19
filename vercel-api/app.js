@@ -16,7 +16,14 @@ dotenv.config();
 import validateKeyHandler from './api/validate-key.js';
 
 // Import automation handlers
-import { createSchedule, manualExecute, getScheduleLimit } from './api/scheduled-prompts.js';
+import { 
+    createSchedule, 
+    manualExecute, 
+    getScheduleLimit, 
+    getUserSchedules, 
+    deleteSchedule, 
+    getAutomationStatistics 
+} from './api/scheduled-prompts.js';
 import { initializeScheduler } from './services/scheduler.js';
 import { initializeAutomationDatabase } from './db/init-automation.js';
 
@@ -102,6 +109,9 @@ app.post('/api/validate-key', async (req, res) => {
 // Automation endpoints
 app.post('/api/scheduled-prompts', createSchedule);
 app.get('/api/scheduled-prompts/limit/:proKey', getScheduleLimit);
+app.get('/api/scheduled-prompts/user/:proKey', getUserSchedules);
+app.delete('/api/scheduled-prompts/:scheduleId/:proKey', deleteSchedule);
+app.get('/api/scheduled-prompts/stats/:proKey', getAutomationStatistics);
 app.post('/api/scheduled-prompts/execute', manualExecute);
 
 // Handle preflight requests for CORS

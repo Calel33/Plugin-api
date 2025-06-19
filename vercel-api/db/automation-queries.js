@@ -136,16 +136,31 @@ export async function getUserScheduledPrompts(proKeyId, status = null) {
  */
 export async function getDueScheduledPrompts() {
     try {
+        // Debug: Check current time and any scheduled prompts
+        const debugResult = await turso.execute({
+            sql: `SELECT COUNT(*) as total_pending, 
+                         MIN(scheduled_time) as earliest_schedule,
+                         datetime('now') as current_time
+                  FROM scheduled_prompts 
+                  WHERE status = 'pending'`,
+            args: []
+        });
+        
+        const debug = debugResult.rows[0];
+        console.log(`🔍 Debug: ${debug.total_pending} pending schedules, earliest: ${debug.earliest_schedule}, current: ${debug.current_time}`);
+
         const result = await turso.execute({
             sql: `SELECT sp.*, pk.key_hash, pk.status as key_status
                   FROM scheduled_prompts sp
                   JOIN pro_keys pk ON sp.pro_key_id = pk.id
-                  WHERE sp.status = 'pending' 
-                    AND sp.scheduled_time <= datetime('now')
+                  WHERE sp.status = 'pending'
+                    AND datetime(sp.scheduled_time) <= datetime('now')
                     AND pk.status = 'active'
                   ORDER BY sp.scheduled_time ASC`,
             args: []
         });
+
+        console.log(`🔍 Found ${result.rows.length} due prompts after query`);
 
         return result.rows.map(row => ({
             ...row,

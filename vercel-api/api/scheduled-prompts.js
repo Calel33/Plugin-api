@@ -6,7 +6,10 @@ import {
     checkUserScheduleLimit,
     getDueScheduledPrompts,
     updateScheduledPromptStatus,
-    logAutomationExecution
+    logAutomationExecution,
+    getUserScheduledPrompts,
+    deleteScheduledPrompt,
+    getAutomationStats
 } from '../db/automation-queries.js';
 import { validateKey } from '../db/queries.js';
 
@@ -271,6 +274,105 @@ export async function manualExecute(req, res) {
         return res.status(500).json({
             success: false,
             message: 'Failed to execute scheduled prompts',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+}
+
+/**
+ * Get user's scheduled prompts
+ * GET /api/scheduled-prompts/user/:proKey
+ */
+export async function getUserSchedules(req, res) {
+    try {
+        const { proKey } = req.params;
+        const { status } = req.query;
+
+        // Validate pro key
+        const userData = await validateProKey(proKey);
+
+        // Get user's scheduled prompts
+        const schedules = await getUserScheduledPrompts(userData.id, status);
+
+        return res.status(200).json({
+            success: true,
+            data: schedules,
+            count: schedules.length
+        });
+
+    } catch (error) {
+        console.error('❌ Error getting user schedules:', error);
+
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to get user schedules',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+}
+
+/**
+ * Delete a scheduled prompt
+ * DELETE /api/scheduled-prompts/:scheduleId/:proKey
+ */
+export async function deleteSchedule(req, res) {
+    try {
+        const { scheduleId, proKey } = req.params;
+
+        // Validate pro key
+        const userData = await validateProKey(proKey);
+
+        // Delete the schedule
+        const deleted = await deleteScheduledPrompt(parseInt(scheduleId), userData.id);
+
+        if (deleted) {
+            return res.status(200).json({
+                success: true,
+                message: 'Schedule deleted successfully'
+            });
+        } else {
+            return res.status(404).json({
+                success: false,
+                message: 'Schedule not found or not authorized'
+            });
+        }
+
+    } catch (error) {
+        console.error('❌ Error deleting schedule:', error);
+
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to delete schedule',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+}
+
+/**
+ * Get user's automation statistics
+ * GET /api/scheduled-prompts/stats/:proKey
+ */
+export async function getAutomationStatistics(req, res) {
+    try {
+        const { proKey } = req.params;
+
+        // Validate pro key
+        const userData = await validateProKey(proKey);
+
+        // Get automation stats
+        const stats = await getAutomationStats(userData.id);
+
+        return res.status(200).json({
+            success: true,
+            data: stats
+        });
+
+    } catch (error) {
+        console.error('❌ Error getting automation stats:', error);
+
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to get automation statistics',
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
