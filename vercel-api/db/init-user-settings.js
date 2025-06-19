@@ -17,8 +17,8 @@ export async function initUserSettings() {
     try {
         console.log('🔧 Initializing user integration settings database...');
 
-        // Read schema SQL file
-        const schemaPath = join(__dirname, 'schema-user-settings.sql');
+        // Read schema SQL file (using fixed version)
+        const schemaPath = join(__dirname, 'schema-user-settings-fixed.sql');
         const schemaSql = readFileSync(schemaPath, 'utf8');
 
         // Split SQL statements (SQLite doesn't support multiple statements in one execute)

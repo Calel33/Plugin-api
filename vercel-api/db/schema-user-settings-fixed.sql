@@ -1,12 +1,12 @@
--- User Integration Settings Database Schema
+-- User Integration Settings Database Schema (Fixed Version)
 -- Stores Discord and Telegram settings for pro key users
 
 -- Table for storing user integration settings (Discord, Telegram)
 CREATE TABLE IF NOT EXISTS user_integration_settings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     pro_key_id INTEGER NOT NULL,
-    integration_type TEXT NOT NULL, -- 'discord', 'telegram'
-    settings TEXT NOT NULL, -- JSON: {"webhookUrl": "...", "botToken": "...", "chatId": "..."}
+    integration_type TEXT NOT NULL,
+    settings TEXT NOT NULL,
     is_active BOOLEAN DEFAULT TRUE,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -16,17 +16,10 @@ CREATE TABLE IF NOT EXISTS user_integration_settings (
 
 -- Indexes for efficient querying
 CREATE INDEX IF NOT EXISTS idx_user_integration_pro_key ON user_integration_settings(pro_key_id);
-CREATE INDEX IF NOT EXISTS idx_user_integration_type ON user_integration_settings(integration_type);
-CREATE INDEX IF NOT EXISTS idx_user_integration_active ON user_integration_settings(is_active);
 
--- Trigger to update updated_at timestamp
-CREATE TRIGGER IF NOT EXISTS update_user_integration_timestamp
-AFTER UPDATE ON user_integration_settings
-BEGIN
-    UPDATE user_integration_settings 
-    SET updated_at = datetime('now') 
-    WHERE id = NEW.id;
-END;
+CREATE INDEX IF NOT EXISTS idx_user_integration_type ON user_integration_settings(integration_type);
+
+CREATE INDEX IF NOT EXISTS idx_user_integration_active ON user_integration_settings(is_active);
 
 -- View for getting active integration settings with user details
 CREATE VIEW IF NOT EXISTS active_user_integrations AS
@@ -45,4 +38,4 @@ SELECT
 FROM user_integration_settings uis
 LEFT JOIN pro_keys pk ON uis.pro_key_id = pk.id
 LEFT JOIN customers c ON pk.id = c.pro_key_id
-WHERE uis.is_active = TRUE AND pk.status = 'active';
+WHERE uis.is_active = TRUE AND pk.status = 'active'; 

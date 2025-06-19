@@ -26,6 +26,7 @@ import {
 } from './api/scheduled-prompts.js';
 import { initializeScheduler } from './services/scheduler.js';
 import { initializeAutomationDatabase } from './db/init-automation.js';
+import { initUserSettings } from './db/init-user-settings.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -162,8 +163,9 @@ async function startServer() {
             console.log(`⏰ Automation endpoint: http://localhost:${PORT}/api/scheduled-prompts`);
             console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
             
-            // Initialize automation database tables
+            // Initialize database tables
             initializeAutomationDatabase();
+            initUserSettings();
             
             // Initialize automation scheduler
             initializeScheduler();
